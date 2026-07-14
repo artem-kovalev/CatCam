@@ -109,6 +109,10 @@ else
     echo "${INSTALL_DIR}/config/config.yaml already exists - left untouched."
 fi
 
+camera_type="$("${INSTALL_DIR}/.venv/bin/python" -c \
+    "import yaml; print(yaml.safe_load(open('${INSTALL_DIR}/config/config.yaml'))['camera']['type'])")"
+echo "Detected camera.type='${camera_type}' from config.yaml."
+
 echo
 echo "-- MediaMTX secrets (mediamtx.env) --"
 if [ ! -f "${ETC_DIR}/mediamtx.env" ]; then
@@ -156,6 +160,51 @@ fi
 if [ ! -f "${MEDIAMTX_DIR}/mediamtx.yml" ]; then
     cp "${REPO_ROOT}/deploy/mediamtx/mediamtx.yml" "${MEDIAMTX_DIR}/mediamtx.yml"
     echo "Installed ${MEDIAMTX_DIR}/mediamtx.yml."
+    if [ "${camera_type}" = "usb" ]; then
+        # The committed mediamtx.yml defaults its `cam:` path to the CSI
+        # (source: rpiCamera) variant - swap it for the USB (source:
+        # publisher) variant now, on this fresh copy only, so a USB install
+        # doesn't silently try to open a nonexistent CSI sensor. Only runs
+        # once, on first install: this file is otherwise never touched again
+        # (see the `[ ! -f ... ]` guard above), so a later manual edit here
+        # is never overwritten by a re-run.
+        "${INSTALL_DIR}/.venv/bin/python" - "${MEDIAMTX_DIR}/mediamtx.yml" <<'PYEOF'
+import sys
+
+path = sys.argv[1]
+csi_block = (
+    "  cam:\n"
+    "    source: rpiCamera\n"
+    "    rpiCameraWidth: 1280\n"
+    "    rpiCameraHeight: 720\n"
+    "    rpiCameraFPS: 15\n"
+    "    rpiCameraCodec: auto\n"
+)
+csi_block_commented = (
+    "  # cam:\n"
+    "  #   source: rpiCamera\n"
+    "  #   rpiCameraWidth: 1280\n"
+    "  #   rpiCameraHeight: 720\n"
+    "  #   rpiCameraFPS: 15\n"
+    "  #   rpiCameraCodec: auto\n"
+)
+usb_block_commented = "  # cam:\n  #   source: publisher\n"
+usb_block = "  cam:\n    source: publisher\n"
+
+text = open(path, encoding="utf-8").read()
+if csi_block not in text or usb_block_commented not in text:
+    sys.exit(
+        "FAIL: mediamtx.yml's paths.cam block doesn't match the expected "
+        "template - swap it to 'source: publisher' manually per "
+        "docs/streaming.md."
+    )
+text = text.replace(csi_block, csi_block_commented).replace(
+    usb_block_commented, usb_block
+)
+open(path, "w", encoding="utf-8").write(text)
+print("Swapped mediamtx.yml's paths.cam block to source: publisher (USB).")
+PYEOF
+    fi
 else
     echo "${MEDIAMTX_DIR}/mediamtx.yml already exists - left untouched."
 fi
@@ -182,10 +231,7 @@ cp "${REPO_ROOT}/deploy/systemd/catcam-stream.service" /etc/systemd/system/catca
 cp "${REPO_ROOT}/deploy/systemd/catcam-publisher.service" /etc/systemd/system/catcam-publisher.service
 systemctl daemon-reload
 
-camera_type="$("${INSTALL_DIR}/.venv/bin/python" -c \
-    "import yaml; print(yaml.safe_load(open('${INSTALL_DIR}/config/config.yaml'))['camera']['type'])")"
-echo "Detected camera.type='${camera_type}' from config.yaml."
-
+# camera_type was already detected in the "Application config" step above.
 systemctl enable --now catcam-stream.service
 if [ "${camera_type}" = "usb" ]; then
     systemctl enable --now catcam-publisher.service

@@ -18,10 +18,21 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-# Prefer the project venv (has pyyaml/python-dotenv/etc.) over system python3,
-# which on a deployed install has no reason to have those installed.
+# Prefer a venv that actually has pyyaml/python-dotenv/etc. over system
+# python3, which has no reason to have those installed. `diagnose.sh` is
+# often run from a plain git checkout (no venv of its own) even on a real
+# deployed Pi where the actual venv+secrets live at /opt/catcam - so prefer
+# that deployed install's venv/source over the checkout's own (usually
+# absent) venv whenever it's present, regardless of where this script itself
+# was invoked from. CATCAM_SRC_ROOT (not REPO_ROOT) is used for the actual
+# `python -m catcam.*` invocations below so config/storage paths resolve
+# against the real deployed install, not the checkout.
 PYTHON_BIN="python3"
-if [ -x "${REPO_ROOT}/.venv/bin/python3" ]; then
+CATCAM_SRC_ROOT="${REPO_ROOT}"
+if [ -x /opt/catcam/.venv/bin/python3 ]; then
+    PYTHON_BIN=/opt/catcam/.venv/bin/python3
+    CATCAM_SRC_ROOT=/opt/catcam
+elif [ -x "${REPO_ROOT}/.venv/bin/python3" ]; then
     PYTHON_BIN="${REPO_ROOT}/.venv/bin/python3"
 fi
 
@@ -80,7 +91,7 @@ fi
 echo
 echo "-- MediaMTX stream readiness --"
 if command -v "${PYTHON_BIN}" >/dev/null 2>&1; then
-    if (cd "${REPO_ROOT}" && PYTHONPATH="${REPO_ROOT}/src" "${PYTHON_BIN}" -m catcam.stream_health); then
+    if (cd "${CATCAM_SRC_ROOT}" && PYTHONPATH="${CATCAM_SRC_ROOT}/src" "${PYTHON_BIN}" -m catcam.stream_health); then
         :
     else
         overall_status=1
@@ -105,7 +116,7 @@ fi
 echo
 echo "-- Storage / disk quota --"
 if command -v "${PYTHON_BIN}" >/dev/null 2>&1; then
-    if (cd "${REPO_ROOT}" && PYTHONPATH="${REPO_ROOT}/src" "${PYTHON_BIN}" -m catcam.health); then
+    if (cd "${CATCAM_SRC_ROOT}" && PYTHONPATH="${CATCAM_SRC_ROOT}/src" "${PYTHON_BIN}" -m catcam.health); then
         echo "PASS: storage/disk usage within limits."
     else
         echo "FAIL: storage/disk usage check failed (see above)."

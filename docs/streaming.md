@@ -147,7 +147,10 @@ sudo systemctl enable --now catcam-stream.service
 
 **If using a USB camera** (`camera.type: usb`), also swap `mediamtx.yml`'s
 `paths.cam` block to the commented-out `source: publisher` variant, and
-enable the publisher:
+enable the publisher. (`scripts/install.sh` — task 10's recommended install
+path — does this swap automatically on a fresh install when it detects
+`camera.type: usb` in `config.yaml`; the manual steps below are only needed
+if you installed `mediamtx.yml` by hand instead.)
 
 ```bash
 sudo cp deploy/systemd/catcam-publisher.service /etc/systemd/system/
