@@ -15,6 +15,10 @@ Type=simple
 User=catcam
 Group=catcam
 WorkingDirectory=/opt/catcam
+# See catcam.service's own RuntimeDirectory comment: this unit is the one
+# that actually acquires the CameraLock in /run/catcam, so it needs this
+# directory to exist and be owned by catcam:catcam just as much.
+RuntimeDirectory=catcam
 # Lets `python -m catcam.*` resolve without installing the package into the
 # venv; task 10 may replace this with a proper `pip install` of catcam itself.
 Environment=PYTHONPATH=/opt/catcam/src

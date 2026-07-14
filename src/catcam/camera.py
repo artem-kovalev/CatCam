@@ -66,13 +66,25 @@ class CameraLock:
     """
 
     def __init__(self, lock_path: Optional[str] = None):
-        self._lock_path = Path(lock_path) if lock_path else _default_lock_path()
+        # Resolution of the *default* path (which has a real filesystem side
+        # effect - creating /run/catcam or its fallback, see
+        # _default_lock_path()) is deferred to acquire(), not done here.
+        # Constructing a CameraBackend (and therefore a CameraLock) happens
+        # on every `is_available()`-only availability check too (health.py's
+        # `/status` and `scripts/diagnose.sh`) - if that eagerly created
+        # /run/catcam, it would be owned by whichever unprivileged user ran
+        # the check, not necessarily the `catcam` service user, permanently
+        # locking the real service out of writing its own lock file there.
+        self._lock_path: Optional[Path] = Path(lock_path) if lock_path else None
         self._fh = None
 
     def acquire(self) -> None:
         if self._fh is not None:
             return
-        self._lock_path.parent.mkdir(parents=True, exist_ok=True)
+        if self._lock_path is None:
+            self._lock_path = _default_lock_path()
+        else:
+            self._lock_path.parent.mkdir(parents=True, exist_ok=True)
         fh = open(self._lock_path, "w")
         try:
             fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)

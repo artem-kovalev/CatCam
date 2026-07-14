@@ -11,6 +11,14 @@ Type=simple
 User=catcam
 Group=catcam
 WorkingDirectory=/opt/catcam
+# Ensures /run/catcam (src/catcam/camera.py's default CameraLock directory)
+# always exists owned by catcam:catcam before this unit starts, and fixes its
+# ownership on every start even if some other, differently-privileged process
+# (e.g. a manual `scripts/diagnose.sh` run as an interactive login user)
+# created it first with the wrong owner - see camera.py's CameraLock for why
+# that would otherwise permanently lock this service out with a
+# PermissionError.
+RuntimeDirectory=catcam
 # Lets `python -m catcam.main` resolve without installing the package into
 # the venv — same pattern as catcam-publisher.service.
 Environment=PYTHONPATH=/opt/catcam/src

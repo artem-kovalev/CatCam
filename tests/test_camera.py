@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 import pytest
 
 from catcam.camera import (
@@ -57,6 +59,32 @@ def test_camera_lock_reacquire_is_idempotent(tmp_path):
     lock.acquire()
     lock.acquire()  # no-op, must not raise or deadlock
     lock.release()
+
+
+def test_constructing_backend_does_not_touch_default_lock_path():
+    """Regression test: merely constructing a CameraBackend (e.g. for an
+    is_available()-only health check, as health.py/scripts/diagnose.sh do)
+    must not have any filesystem side effect. CameraLock used to eagerly
+    resolve/create the default /run/catcam directory in __init__, so a
+    health check run by an unprivileged interactive user could leave that
+    directory owned by the wrong user - permanently locking the real
+    catcam-publisher.service (which runs as the `catcam` user) out with a
+    PermissionError the next time it tried to acquire the lock for real.
+    """
+    with patch("catcam.camera._default_lock_path") as mock_default_path:
+        create_camera(_camera_config("csi")).is_available()
+        create_camera(_camera_config("usb")).is_available()
+        mock_default_path.assert_not_called()
+
+
+def test_camera_lock_resolves_default_path_lazily_on_acquire(tmp_path):
+    fake_path = tmp_path / "camera.lock"
+    with patch("catcam.camera._default_lock_path", return_value=fake_path) as mock_default_path:
+        lock = CameraLock()
+        mock_default_path.assert_not_called()
+        lock.acquire()
+        mock_default_path.assert_called_once()
+        lock.release()
 
 
 @pytest.mark.parametrize(
