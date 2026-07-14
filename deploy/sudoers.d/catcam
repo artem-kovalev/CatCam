@@ -1,0 +1,14 @@
+# Lets the `catcam` service account (catcam.service runs as this user)
+# restart its own systemd unit in response to the Telegram bot's
+# /restart_service command, without granting any broader root access.
+#
+# The command below must match src/catcam/telegram_bot.py's
+# _build_restart_command() exactly: a fixed argv with no user-supplied
+# arguments (the seconds/minutes arguments other commands take are never
+# passed to this one), so scoping sudo to this exact command string carries
+# no injection risk — there is nothing for a caller to inject.
+#
+# Install: sudo cp deploy/sudoers.d/catcam /etc/sudoers.d/catcam && \
+#          sudo chmod 440 /etc/sudoers.d/catcam
+# Always validate before/after editing: sudo visudo -c -f /etc/sudoers.d/catcam
+catcam ALL=(root) NOPASSWD: /usr/bin/systemctl restart catcam.service

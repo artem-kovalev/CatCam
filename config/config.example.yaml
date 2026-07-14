@@ -1,0 +1,60 @@
+# Structural (non-secret) configuration defaults for CatCam.
+# Copy to config/config.yaml and adjust for your hardware/deployment.
+# Secrets (Telegram token/ids) live in .env, never in this file.
+# See docs/configuration.md for the full precedence rules and valid ranges.
+
+camera:
+  # "csi" (Raspberry Pi Camera Module via libcamera/rpicam-*) or "usb" (V4L2 UVC camera).
+  type: csi
+  # Device path, only used when type: usb (e.g. /dev/video0). Ignored for csi.
+  device: /dev/video0
+  resolution: [1280, 720]
+  framerate: 15
+
+motion:
+  # 0-100: higher = more sensitive to small changes.
+  sensitivity: 25
+  # Motion must persist at least this long before a MotionEvent fires.
+  min_duration_seconds: 1.5
+  # [x, y, width, height] in pixels within the frame; null = full frame.
+  roi: null
+
+recording:
+  clip_duration_seconds: 10
+  pre_roll_seconds: 2
+  max_clip_size_mb: 50
+  storage_dir: storage/recordings
+  pending_dir: storage/pending
+  disk_quota_mb: 2048
+
+video_note:
+  # Telegram video notes are square; this is the output side length in pixels.
+  size_px: 384
+  max_duration_seconds: 60
+  max_size_mb: 8
+  codec: libx264
+  crf: 28
+
+cooldown:
+  default_minutes: 60
+  min_minutes: 1
+  max_minutes: 1440
+  state_file: storage/state/cooldown.json
+
+streaming:
+  # Informational only — used to build connect-URLs in docs/health output.
+  # MediaMTX's real listener addresses/auth live in deploy/mediamtx/mediamtx.yml;
+  # see docs/streaming.md for why each protocol binds wide and is gated by
+  # MediaMTX's own auth (allowlist + password) instead of a narrow bind.
+  bind_address: 0.0.0.0
+  webrtc_port: 8889
+  hls_port: 8888
+  rtsp_port: 8554
+  # MediaMTX path name serving the camera feed.
+  path: cam
+
+logging:
+  level: INFO
+  file: storage/logs/catcam.log
+  max_bytes: 10485760
+  backup_count: 5

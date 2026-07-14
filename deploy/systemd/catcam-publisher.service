@@ -1,0 +1,29 @@
+[Unit]
+Description=CatCam USB camera publisher (feeds MediaMTX via ffmpeg)
+# ENABLE THIS UNIT ONLY IF config/config.yaml has camera.type: usb.
+# CSI cameras are fed to MediaMTX natively (see catcam-stream.service /
+# deploy/mediamtx/mediamtx.yml's rpiCamera source) and do NOT need this unit.
+# Enabling it for a CSI deployment will make it fail immediately and retry
+# forever (by design — see src/catcam/stream_publisher.py's fail-loud
+# camera.type check) without ever needing the camera, so leave it disabled.
+# Soft ordering only, no hard dependency: this way a CSI install that never
+# enables this unit is unaffected by it.
+After=catcam-stream.service
+
+[Service]
+Type=simple
+User=catcam
+Group=catcam
+WorkingDirectory=/opt/catcam
+# Lets `python -m catcam.*` resolve without installing the package into the
+# venv; task 10 may replace this with a proper `pip install` of catcam itself.
+Environment=PYTHONPATH=/opt/catcam/src
+EnvironmentFile=/etc/catcam/.env
+EnvironmentFile=-/etc/catcam/mediamtx.env
+ExecStart=/opt/catcam/.venv/bin/python -m catcam.stream_publisher
+Restart=on-failure
+RestartSec=3
+StartLimitIntervalSec=0
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,25 @@
+[Unit]
+Description=CatCam video streaming (MediaMTX)
+# See docs/streaming.md for the full setup. This unit is used for BOTH
+# CSI and USB deployments — for CSI, MediaMTX's native rpiCamera source
+# feeds itself, so catcam-publisher.service isn't needed at all.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=catcam
+Group=catcam
+WorkingDirectory=/opt/mediamtx
+# Optional (leading '-'): don't fail to start if the operator hasn't set the
+# viewer/publisher passwords yet during initial install.
+EnvironmentFile=-/etc/catcam/mediamtx.env
+ExecStart=/opt/mediamtx/mediamtx /opt/mediamtx/mediamtx.yml
+Restart=on-failure
+RestartSec=2
+# Never give up permanently — a transient camera-driver hiccup at boot
+# shouldn't require a manual `systemctl reset-failed`.
+StartLimitIntervalSec=0
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,26 @@
+# Secrets and local environment
+.env
+config/config.yaml
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+build/
+dist/
+
+# CatCam runtime data
+storage/
+recordings/
+*.log
+
+# OS / editor cruft
+.DS_Store
+.vscode/
+.idea/

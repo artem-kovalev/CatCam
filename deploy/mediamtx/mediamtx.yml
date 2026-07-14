@@ -1,0 +1,158 @@
+# MediaMTX configuration for CatCam.
+#
+# Deploy alongside the MediaMTX binary (see docs/streaming.md for install
+# steps) as /opt/mediamtx/mediamtx.yml, referenced by
+# deploy/systemd/catcam-stream.service.
+#
+# SECRETS: the viewer password below is NOT set in this file. It's supplied
+# at process start via the MTX_<KEY> environment-variable override mechanism
+# (any YAML key can be overridden this way; list items use positional
+# indices, e.g. MTX_AUTHINTERNALUSERS_1_PASS) from /etc/catcam/mediamtx.env,
+# which is root-only and never committed. Never hardcode a password here —
+# this file may end up in version control.
+#
+# NETWORK EXPOSURE: rtspAddress/webrtcAddress/hlsAddress are each a single
+# "host:port" — MediaMTX cannot bind one protocol to two addresses at once.
+# Binding only to a Tailscale IP would break plain-LAN viewing (task3
+# acceptance criterion 3); binding only to the LAN IP would break Tailscale
+# reachability in the general case. So every listener below binds on all
+# interfaces (":<port>") and access is controlled entirely by MediaMTX's own
+# `authInternalUsers` list (IP/CIDR allowlist + password), never by the bind
+# address. This is a deliberate tradeoff, not an oversight — see
+# docs/streaming.md's "Network exposure model" section for the full
+# reasoning, and NEVER port-forward these ports on your router.
+
+###############################################################################
+# Global / control API
+###############################################################################
+
+# Control API — used by src/catcam/stream_health.py to check whether the
+# `cam` path is actually receiving frames (GET /v3/paths/get/cam -> "ready").
+# Loopback-only: nothing outside this host ever needs to reach it.
+api: yes
+apiAddress: 127.0.0.1:9997
+
+# Disable metrics/pprof — not used, no reason to expose even loopback-only.
+metrics: no
+pprof: no
+
+logLevel: info
+
+###############################################################################
+# RTSP (for VLC / other RTSP-capable clients on the tailnet or LAN)
+###############################################################################
+
+rtsp: yes
+rtspAddress: :8554
+# TCP only: simpler firewalling (one port covers control+media), avoids
+# dealing with RTP-over-UDP port ranges for a low-bitrate single-camera feed.
+rtspTransports: [tcp]
+rtspEncryption: "no"
+
+###############################################################################
+# WebRTC (primary viewing protocol — lowest latency)
+###############################################################################
+
+webrtc: yes
+# HTTP/signaling port.
+webrtcAddress: :8889
+# Media (ICE/UDP) port — separate from the signaling port above. Must also be
+# reachable by viewers; see docs/streaming.md's troubleshooting section.
+webrtcLocalUDPAddress: :8189
+# Auto-gather ICE host candidates from all local interfaces, including
+# tailscale0 — this is what lets WebRTC negotiate directly over the tailnet
+# without any STUN/TURN configuration.
+webrtcIPsFromInterfaces: yes
+webrtcICEServers2: []
+
+###############################################################################
+# HLS (fallback for browsers/networks where WebRTC negotiation fails)
+###############################################################################
+
+hls: yes
+hlsAddress: :8888
+hlsEncryption: no
+hlsAlwaysRemux: no
+
+###############################################################################
+# Authentication — the real access-control layer (see NETWORK EXPOSURE above)
+###############################################################################
+#
+# The upstream default authInternalUsers entry allows unauthenticated
+# publish+read from any IP on any path. It is intentionally NOT present here
+# — it must be fully replaced, not merely supplemented, or the allowlist/
+# password below would just be dead weight next to a wide-open default.
+
+authMethod: internal
+authInternalUsers:
+  # Local admin / control-API access. Redundant with apiAddress already being
+  # loopback-only, but cheap defense-in-depth.
+  - user: any
+    pass:
+    ips: ["127.0.0.1", "::1"]
+    permissions:
+      - action: api
+      - action: metrics
+      - action: pprof
+
+  # Viewer: gated by BOTH an IP/CIDR allowlist (private LAN ranges + Tailscale's
+  # CGNAT range) AND a password — an allowlist alone doesn't distinguish an
+  # authorized viewer from any other device on the same home WiFi (guests,
+  # IoT gear, etc.), so both checks apply together.
+  - user: catcam-viewer
+    # Left blank here on purpose — set at process start via the
+    # MTX_AUTHINTERNALUSERS_1_PASS environment variable (see the SECRETS
+    # note at the top of this file). MediaMTX's env-var override replaces
+    # this value outright; it is not `${...}`-style interpolation.
+    pass:
+    ips:
+      - "127.0.0.1"
+      - "::1"
+      - "10.0.0.0/8"
+      - "172.16.0.0/12"
+      - "192.168.0.0/16"
+      - "100.64.0.0/10" # Tailscale CGNAT range
+    permissions:
+      - action: read
+        path: cam
+
+  # Publisher: only used for USB cameras (src/catcam/stream_publisher.py's
+  # ffmpeg process, which always runs on this same host) — never needed from
+  # the LAN or tailnet, so it's restricted to loopback only. Unused entirely
+  # for CSI deployments (MediaMTX's native rpiCamera source doesn't publish
+  # over the network at all), but harmless to leave defined.
+  - user: catcam-publisher
+    # Left blank here on purpose — set via MTX_AUTHINTERNALUSERS_2_PASS, same
+    # as the viewer entry above.
+    pass:
+    ips: ["127.0.0.1", "::1"]
+    permissions:
+      - action: publish
+        path: cam
+
+###############################################################################
+# Paths
+###############################################################################
+
+paths:
+  # --- CSI camera (default: config/config.yaml's camera.type: csi) ---
+  # MediaMTX opens the CSI sensor directly via its embedded libcamera
+  # bindings — no rpicam-vid subprocess, no catcam.camera.CameraLock
+  # involved (see docs/streaming.md's "Camera ownership contract").
+  # Width/height/fps mirror config/config.example.yaml's camera defaults;
+  # keep them in sync if you change camera.resolution/framerate there.
+  cam:
+    source: rpiCamera
+    rpiCameraWidth: 1280
+    rpiCameraHeight: 720
+    rpiCameraFPS: 15
+    rpiCameraCodec: auto
+
+  # --- USB camera (config/config.yaml's camera.type: usb) ---
+  # Swap this in for the `cam:` block above (don't run both) when using a
+  # USB/UVC camera. Frames arrive from src/catcam/stream_publisher.py's
+  # ffmpeg process, which authenticates as `catcam-publisher` above and
+  # holds catcam.camera.CameraLock for as long as it runs.
+  #
+  # cam:
+  #   source: publisher

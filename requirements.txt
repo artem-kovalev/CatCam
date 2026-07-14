@@ -1,0 +1,7 @@
+# Mirrors [project.dependencies] in pyproject.toml, for environments that
+# install via `pip install -r requirements.txt` instead of the package build.
+python-telegram-bot>=20,<21
+opencv-python-headless>=4.9,<5
+pyyaml>=6.0,<7
+python-dotenv>=1.0,<2
+psutil>=5.9,<6

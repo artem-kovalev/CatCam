@@ -1,0 +1,27 @@
+[Unit]
+Description=CatCam main application (motion detection, recording, Telegram bot)
+# Soft ordering only: src/catcam/frame_source.py already falls back to a
+# direct camera open if MediaMTX/catcam-stream.service isn't up yet, so this
+# unit doesn't hard-depend on it — see docs/architecture.md.
+After=network-online.target catcam-stream.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=catcam
+Group=catcam
+WorkingDirectory=/opt/catcam
+# Lets `python -m catcam.main` resolve without installing the package into
+# the venv — same pattern as catcam-publisher.service.
+Environment=PYTHONPATH=/opt/catcam/src
+EnvironmentFile=/etc/catcam/.env
+ExecStart=/opt/catcam/.venv/bin/python -m catcam.main
+Restart=on-failure
+RestartSec=3
+# Never give up permanently — see catcam-stream.service's rationale; a bad
+# startup-time Telegram connectivity blip shouldn't require a manual
+# `systemctl reset-failed` (see tasks/task9.md's Unresolved questions).
+StartLimitIntervalSec=0
+
+[Install]
+WantedBy=multi-user.target
