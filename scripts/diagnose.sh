@@ -36,6 +36,22 @@ elif [ -x "${REPO_ROOT}/.venv/bin/python3" ]; then
     PYTHON_BIN="${REPO_ROOT}/.venv/bin/python3"
 fi
 
+# On a deployed install, secrets live in /etc/catcam/.env - catcam.service
+# only sees them via systemd's `EnvironmentFile=` directive, which populates
+# the real process environment *before* Python starts. That mechanism doesn't
+# exist for a manual `python -m catcam.*` invocation here, and `load_dotenv()`
+# (called with no explicit path) searches upward from config.py's own file
+# location (e.g. /opt/catcam/src/catcam/), which never reaches /etc/catcam -
+# so without sourcing it ourselves first, every check below would spuriously
+# fail with "Missing required environment variable(s)" even on a fully
+# correctly configured install.
+ENV_FILE=""
+if [ -f /etc/catcam/.env ]; then
+    ENV_FILE=/etc/catcam/.env
+elif [ -f "${REPO_ROOT}/.env" ]; then
+    ENV_FILE="${REPO_ROOT}/.env"
+fi
+
 overall_status=0
 
 echo "== CatCam diagnostics =="
@@ -91,7 +107,13 @@ fi
 echo
 echo "-- MediaMTX stream readiness --"
 if command -v "${PYTHON_BIN}" >/dev/null 2>&1; then
-    if (cd "${CATCAM_SRC_ROOT}" && PYTHONPATH="${CATCAM_SRC_ROOT}/src" "${PYTHON_BIN}" -m catcam.stream_health); then
+    if (
+        cd "${CATCAM_SRC_ROOT}" \
+        && { [ -z "${ENV_FILE}" ] || { set -a; \
+             # shellcheck disable=SC1090
+             . "${ENV_FILE}"; set +a; }; } \
+        && PYTHONPATH="${CATCAM_SRC_ROOT}/src" "${PYTHON_BIN}" -m catcam.stream_health
+    ); then
         :
     else
         overall_status=1
@@ -116,7 +138,13 @@ fi
 echo
 echo "-- Storage / disk quota --"
 if command -v "${PYTHON_BIN}" >/dev/null 2>&1; then
-    if (cd "${CATCAM_SRC_ROOT}" && PYTHONPATH="${CATCAM_SRC_ROOT}/src" "${PYTHON_BIN}" -m catcam.health); then
+    if (
+        cd "${CATCAM_SRC_ROOT}" \
+        && { [ -z "${ENV_FILE}" ] || { set -a; \
+             # shellcheck disable=SC1090
+             . "${ENV_FILE}"; set +a; }; } \
+        && PYTHONPATH="${CATCAM_SRC_ROOT}/src" "${PYTHON_BIN}" -m catcam.health
+    ); then
         echo "PASS: storage/disk usage within limits."
     else
         echo "FAIL: storage/disk usage check failed (see above)."
@@ -129,10 +157,8 @@ fi
 echo
 echo "-- Environment file (.env) --"
 # Existence only - never print contents, this file holds the Telegram bot token.
-if [ -f /etc/catcam/.env ]; then
-    echo "PASS: /etc/catcam/.env exists."
-elif [ -f "${REPO_ROOT}/.env" ]; then
-    echo "PASS: ${REPO_ROOT}/.env exists (dev-mode path)."
+if [ -n "${ENV_FILE}" ]; then
+    echo "PASS: ${ENV_FILE} exists."
 else
     echo "FAIL: no .env found at /etc/catcam/.env or ${REPO_ROOT}/.env."
     overall_status=1
