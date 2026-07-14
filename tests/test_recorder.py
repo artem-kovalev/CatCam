@@ -1,3 +1,4 @@
+import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -71,7 +72,8 @@ def test_record_event_raises_on_nonzero_exit(mock_popen, mock_which, tmp_path):
 @patch("catcam.recorder.subprocess.Popen")
 def test_record_event_writes_pre_roll_then_live_frames(mock_popen, mock_which, tmp_path):
     proc = MagicMock()
-    proc.stdin = MagicMock()
+    stdin_mock = MagicMock()
+    proc.stdin = stdin_mock
     proc.communicate.return_value = (b"", b"")
     proc.returncode = 0
     mock_popen.return_value = proc
@@ -93,7 +95,11 @@ def test_record_event_writes_pre_roll_then_live_frames(mock_popen, mock_which, t
     )
 
     assert live_calls["count"] == 15
-    assert proc.stdin.write.call_count == 20
+    # Asserted against the captured `stdin_mock`, not `proc.stdin` - the code
+    # under test sets `proc.stdin = None` after closing it (see recorder.py),
+    # so `proc.stdin` itself is no longer this mock by the time we get here.
+    assert stdin_mock.write.call_count == 20
+    assert proc.stdin is None
     assert result.parent == tmp_path / "tmp"
     assert result.suffix == ".mp4"
 
@@ -102,7 +108,8 @@ def test_record_event_writes_pre_roll_then_live_frames(mock_popen, mock_which, t
 @patch("catcam.recorder.subprocess.Popen")
 def test_record_event_truncates_pre_roll_longer_than_duration(mock_popen, mock_which, tmp_path):
     proc = MagicMock()
-    proc.stdin = MagicMock()
+    stdin_mock = MagicMock()
+    proc.stdin = stdin_mock
     proc.communicate.return_value = (b"", b"")
     proc.returncode = 0
     mock_popen.return_value = proc
@@ -118,7 +125,7 @@ def test_record_event_truncates_pre_roll_longer_than_duration(mock_popen, mock_w
         resolution=(320, 240),
     )
 
-    assert proc.stdin.write.call_count == 20
+    assert stdin_mock.write.call_count == 20
 
 
 @patch("catcam.recorder.shutil.which", return_value="/usr/bin/ffmpeg")
@@ -142,3 +149,32 @@ def test_record_event_handles_broken_pipe_as_size_cap_truncation(mock_popen, moc
     )
 
     assert result.suffix == ".mp4"  # returns normally, doesn't raise
+
+
+@patch("catcam.recorder.shutil.which", return_value="/usr/bin/ffmpeg")
+def test_record_event_real_subprocess_communicate_does_not_raise(mock_which, tmp_path, monkeypatch):
+    """Regression test for a real bug found on a live Raspberry Pi deployment:
+    mocking `subprocess.Popen` entirely (as every other test here does) never
+    exercises the real `Popen.communicate()` implementation, which
+    unconditionally tries to flush/close `self.stdin` if it isn't None -
+    raising `ValueError: flush of closed file` on every single recording,
+    since `record_event()` already closed `proc.stdin` itself beforehand.
+    Spawns a real (non-ffmpeg) subprocess so this exercises the actual stdlib
+    codepath the bug lived in, without needing ffmpeg installed.
+    """
+    fake_command = [sys.executable, "-c", "import sys; sys.stdin.buffer.read()"]
+    monkeypatch.setattr(
+        "catcam.recorder._build_ffmpeg_command",
+        lambda *args, **kwargs: fake_command,
+    )
+
+    recorder = Recorder(_config(tmp_path))
+    frame = np.zeros((240, 320, 3), dtype=np.uint8)
+
+    result = recorder.record_event(
+        pre_roll_frames=[frame],
+        frame_source=lambda: frame,
+        fps=10.0,
+        resolution=(320, 240),
+    )
+    assert result.suffix == ".mp4"

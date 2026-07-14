@@ -87,8 +87,14 @@ authMethod: internal
 authInternalUsers:
   # Local admin / control-API access. Redundant with apiAddress already being
   # loopback-only, but cheap defense-in-depth.
+  #
+  # NOTE: the `pass` key must be omitted entirely for `user: any` - MediaMTX
+  # rejects startup with "using a password with 'any' user is not supported"
+  # even if `pass` is present but blank/null, since "any" is a wildcard match
+  # with no credential to check. This is unlike the `catcam-viewer`/
+  # `catcam-publisher` entries below, where `pass:` (populated via the
+  # MTX_AUTHINTERNALUSERS_*_PASS env override) is required.
   - user: any
-    pass:
     ips: ["127.0.0.1", "::1"]
     permissions:
       - action: api

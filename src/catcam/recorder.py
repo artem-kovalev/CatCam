@@ -159,6 +159,13 @@ class Recorder:
                     proc.stdin.close()
                 except OSError:
                     pass
+                # subprocess.communicate() unconditionally tries to flush/close
+                # `self.stdin` itself when it isn't None - since we already
+                # closed the file object above, that flush() raises
+                # `ValueError: flush of closed file` (not caught internally,
+                # only BrokenPipeError is). Clearing the reference tells
+                # communicate() there is no stdin left for it to touch.
+                proc.stdin = None
 
         _, stderr = proc.communicate()
         if proc.returncode != 0:
